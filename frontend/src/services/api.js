@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: `http://${window.location.hostname}:8000`,
+  baseURL: 'https://casa-kih7.onrender.com',
 });
 
 api.interceptors.request.use((config) => {
