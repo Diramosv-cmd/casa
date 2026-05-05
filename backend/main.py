@@ -24,15 +24,7 @@ app.add_middleware(
 
 @app.post("/register", response_model=schemas.UserResponse)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(models.User).filter(models.User.email == user.email).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    hashed_password = auth.get_password_hash(user.password)
-    new_user = models.User(email=user.email, nombre=user.nombre, password_hash=hashed_password)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
+    raise HTTPException(status_code=403, detail="El registro de nuevos usuarios está desactivado.")
 
 @app.post("/login", response_model=schemas.Token)
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -55,11 +47,11 @@ def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
 
 @app.get("/categorias", response_model=List[schemas.CategoriaResponse])
 def get_categorias(db: Session = Depends(get_db)):
-    return db.query(models.Categoria).all()
+    return db.query(models.Categoria).order_by(models.Categoria.nombre).all()
 
 @app.get("/marcas", response_model=List[schemas.MarcaResponse])
 def get_marcas(db: Session = Depends(get_db)):
-    return db.query(models.Marca).all()
+    return db.query(models.Marca).order_by(models.Marca.nombre).all()
 
 @app.post("/transacciones", response_model=schemas.TransaccionResponse)
 def create_transaccion(transaccion: schemas.TransaccionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
@@ -107,6 +99,8 @@ def get_transacciones(
     usuario_id: int = None, 
     mes: int = None, 
     anio: int = None,
+    categoria_id: int = None,
+    marca_id: int = None,
     skip: int = 0, 
     limit: int = 1000, 
     db: Session = Depends(get_db), 
@@ -120,6 +114,10 @@ def get_transacciones(
         query = query.filter(extract('month', models.Transaccion.fecha) == mes)
     if anio is not None:
         query = query.filter(extract('year', models.Transaccion.fecha) == anio)
+    if categoria_id is not None:
+        query = query.filter(models.Transaccion.categoria_id == categoria_id)
+    if marca_id is not None:
+        query = query.filter(models.Transaccion.marca_id == marca_id)
         
     query = query.order_by(models.Transaccion.fecha.desc())
     transacciones = query.offset(skip).limit(limit).all()
