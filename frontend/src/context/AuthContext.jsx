@@ -9,13 +9,14 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const fetchUser = async () => {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (token) {
         try {
           const userData = await getCurrentUser();
           setUser(userData);
         } catch (error) {
           localStorage.removeItem('token');
+          sessionStorage.removeItem('token');
         }
       }
       setLoading(false);

@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
-import { PlusCircle, Receipt, ChevronLeft, ChevronRight, Edit2, Trash2 } from 'lucide-react';
+import { PlusCircle, Receipt, ChevronLeft, ChevronRight, Edit2, Trash2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import { useContext } from 'react';
+import { formatCurrency, formatDate } from '../utils/formatters';
+import * as XLSX from 'xlsx';
+import { Download } from 'lucide-react';
 
 const Transacciones = () => {
   const [transacciones, setTransacciones] = useState([]);
@@ -17,8 +20,18 @@ const Transacciones = () => {
   const [editId, setEditId] = useState(null);
 
   // Filters
-  const [usuarioFiltro, setUsuarioFiltro] = useState(currentUser?.id?.toString() || '');
+  const [usuarioFiltro, setUsuarioFiltro] = useState(currentUser?.id?.toString() || null);
   const [mesFiltro, setMesFiltro] = useState((new Date().getMonth() + 1).toString());
+  const [anioFiltro, setAnioFiltro] = useState(new Date().getFullYear().toString());
+  const [categoriaFiltro, setCategoriaFiltro] = useState('');
+  const [marcaFiltro, setMarcaFiltro] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: 'fecha', direction: 'desc' });
+
+  useEffect(() => {
+    if (currentUser?.id && usuarioFiltro === null) {
+      setUsuarioFiltro(currentUser.id.toString());
+    }
+  }, [currentUser, usuarioFiltro]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -42,20 +55,21 @@ const Transacciones = () => {
     { value: '9', label: 'Septiembre' }, { value: '10', label: 'Octubre' },
     { value: '11', label: 'Noviembre' }, { value: '12', label: 'Diciembre' }
   ];
+  const anios = Array.from({ length: 5 }, (_, i) => (new Date().getFullYear() - i).toString());
 
   useEffect(() => {
     fetchData();
-  }, [usuarioFiltro, mesFiltro]);
+  }, [usuarioFiltro, mesFiltro, anioFiltro, categoriaFiltro, marcaFiltro]);
 
   const fetchData = async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
       if (usuarioFiltro) params.append('usuario_id', usuarioFiltro);
-      if (mesFiltro) {
-        params.append('mes', mesFiltro);
-        params.append('anio', new Date().getFullYear().toString());
-      }
+      if (mesFiltro) params.append('mes', mesFiltro);
+      if (anioFiltro) params.append('anio', anioFiltro);
+      if (categoriaFiltro) params.append('categoria_id', categoriaFiltro);
+      if (marcaFiltro) params.append('marca_id', marcaFiltro);
 
       const [resTx, resCat, resMarcas, resUsers] = await Promise.all([
         api.get(`/transacciones?${params.toString()}`),
@@ -147,56 +161,177 @@ const Transacciones = () => {
     setFecha('');
   };
 
+  const handleExportExcel = () => {
+    const dataToExport = sortedTransacciones.map(t => {
+      const cat = categorias.find(c => c.id === t.categoria_id);
+      const usr = usuarios.find(u => u.id === t.usuario_id);
+      const marca = marcas.find(m => m.id === t.marca_id);
+      
+      return {
+        'Fecha': formatDate(t.fecha),
+        'Tipo': t.tipo,
+        'Medio': t.transaccion,
+        'Categoría': cat?.nombre || 'Desconocida',
+        'Marca': marca?.nombre || 'Desconocida',
+        'Usuario': usr?.nombre || 'Desconocido',
+        'Monto': t.monto,
+        'Cuotas': t.cuotas || '-',
+        'Observaciones': t.observaciones || ''
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Transacciones");
+    
+    // Generate filename based on filters
+    const filename = `Transacciones_${anioFiltro || 'Todas'}_${mesFiltro || 'Todos'}.xlsx`;
+    XLSX.writeFile(workbook, filename);
+  };
+
   const marcasFiltradas = marcas.filter(m => m.categoria_id === parseInt(categoriaId));
+
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getSortIcon = (key) => {
+    if (sortConfig.key !== key) return <ArrowUpDown className="w-3 h-3 ml-1 inline text-slate-400" />;
+    return sortConfig.direction === 'asc' ? 
+      <ArrowUp className="w-3 h-3 ml-1 inline text-primary-600" /> : 
+      <ArrowDown className="w-3 h-3 ml-1 inline text-primary-600" />;
+  };
+
+  const sortedTransacciones = [...transacciones].sort((a, b) => {
+    if (sortConfig.key === null) return 0;
+    
+    let aValue = a[sortConfig.key];
+    let bValue = b[sortConfig.key];
+
+    // Handle nested or derived values
+    if (sortConfig.key === 'categoria') {
+      aValue = categorias.find(c => c.id === a.categoria_id)?.nombre || '';
+      bValue = categorias.find(c => c.id === b.categoria_id)?.nombre || '';
+    } else if (sortConfig.key === 'usuario') {
+      aValue = usuarios.find(u => u.id === a.usuario_id)?.nombre || '';
+      bValue = usuarios.find(u => u.id === b.usuario_id)?.nombre || '';
+    }
+
+    if (aValue < bValue) {
+      return sortConfig.direction === 'asc' ? -1 : 1;
+    }
+    if (aValue > bValue) {
+      return sortConfig.direction === 'asc' ? 1 : -1;
+    }
+    return 0;
+  });
 
   // Pagination Logic
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = transacciones.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(transacciones.length / itemsPerPage);
+  const currentItems = sortedTransacciones.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(sortedTransacciones.length / itemsPerPage);
 
   const prevPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
   const nextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 space-y-4 md:space-y-0">
-        <h1 className="text-2xl font-bold text-slate-900">Transacciones</h1>
+      <div className="flex flex-col space-y-6 mb-8">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
+          <h1 className="text-2xl font-bold text-slate-900">Transacciones</h1>
+          
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleExportExcel}
+              className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors shadow-sm"
+              title="Exportar a Excel"
+            >
+              <Download className="w-5 h-5" />
+              <span>Exportar</span>
+            </button>
+            <button
+              onClick={() => { resetForm(); setShowForm(!showForm); }}
+              className="flex items-center space-x-2 bg-primary-600 text-white px-4 py-2 rounded-md hover:bg-primary-700 transition-colors shadow-sm"
+            >
+              <PlusCircle className="w-5 h-5" />
+              <span>Nueva</span>
+            </button>
+          </div>
+        </div>
 
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center space-x-2">
-            <label className="text-sm font-medium text-slate-700">Mes:</label>
-            <select
-              value={mesFiltro}
-              onChange={(e) => setMesFiltro(e.target.value)}
-              className="rounded-md border border-slate-300 p-2 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
-            >
-              <option value="">Todos los meses</option>
-              {meses.map(m => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex flex-wrap items-center gap-6">
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-slate-700">Mes:</label>
+              <select
+                value={mesFiltro}
+                onChange={(e) => setMesFiltro(e.target.value)}
+                className="rounded-md border border-slate-300 p-2 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
+              >
+                <option value="">Todos los meses</option>
+                {meses.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-slate-700">Año:</label>
+              <select
+                value={anioFiltro}
+                onChange={(e) => setAnioFiltro(e.target.value)}
+                className="rounded-md border border-slate-300 p-2 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
+              >
+                {anios.map(a => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-slate-700">Categoría:</label>
+              <select
+                value={categoriaFiltro}
+                onChange={(e) => { setCategoriaFiltro(e.target.value); setMarcaFiltro(''); }}
+                className="rounded-md border border-slate-300 p-2 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
+              >
+                <option value="">Todas</option>
+                {categorias.map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-slate-700">Marca:</label>
+              <select
+                value={marcaFiltro}
+                onChange={(e) => setMarcaFiltro(e.target.value)}
+                disabled={!categoriaFiltro}
+                className="rounded-md border border-slate-300 p-2 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm disabled:bg-slate-100"
+              >
+                <option value="">Todas</option>
+                {marcas.filter(m => m.categoria_id === parseInt(categoriaFiltro)).map(m => (
+                  <option key={m.id} value={m.id}>{m.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-slate-700">Usuario:</label>
+              <select
+                value={usuarioFiltro}
+                onChange={(e) => setUsuarioFiltro(e.target.value)}
+                className="rounded-md border border-slate-300 p-2 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
+              >
+                <option value="">Todos</option>
+                {usuarios.map(u => (
+                  <option key={u.id} value={u.id}>{u.nombre}</option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <label className="text-sm font-medium text-slate-700">Usuario:</label>
-            <select
-              value={usuarioFiltro}
-              onChange={(e) => setUsuarioFiltro(e.target.value)}
-              className="rounded-md border border-slate-300 p-2 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white shadow-sm"
-            >
-              <option value="">Todos</option>
-              {usuarios.map(u => (
-                <option key={u.id} value={u.id}>{u.nombre}</option>
-              ))}
-            </select>
-          </div>
-          <button
-            onClick={() => { resetForm(); setShowForm(!showForm); }}
-            className="flex items-center space-x-2 bg-primary-600 text-white px-4 py-2 rounded-md hover:bg-primary-700 transition-colors shadow-sm ml-2"
-          >
-            <PlusCircle className="w-5 h-5" />
-            <span className="hidden sm:inline">Nueva</span>
-          </button>
         </div>
       </div>
 
@@ -281,11 +416,21 @@ const Transacciones = () => {
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Fecha</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Detalle</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Categoría</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Usuario</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Monto</th>
+                  <th onClick={() => handleSort('fecha')} className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors">
+                    Fecha {getSortIcon('fecha')}
+                  </th>
+                  <th onClick={() => handleSort('tipo')} className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors">
+                    Detalle {getSortIcon('tipo')}
+                  </th>
+                  <th onClick={() => handleSort('categoria')} className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors">
+                    Categoría {getSortIcon('categoria')}
+                  </th>
+                  <th onClick={() => handleSort('usuario')} className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors">
+                    Usuario {getSortIcon('usuario')}
+                  </th>
+                  <th onClick={() => handleSort('monto')} className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors">
+                    Monto {getSortIcon('monto')}
+                  </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
                 </tr>
               </thead>
@@ -307,7 +452,7 @@ const Transacciones = () => {
                     return (
                       <tr key={t.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                          {new Date(t.fecha).toLocaleDateString()}
+                          {formatDate(t.fecha)}
                         </td>
                         <td className="px-6 py-4">
                           <div className="text-sm font-medium text-slate-900">{t.tipo} - {t.transaccion}</div>
@@ -321,7 +466,7 @@ const Transacciones = () => {
                           {usr?.nombre || 'Desconocido'}
                         </td>
                         <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium text-right ${isIngreso ? 'text-green-600' : 'text-slate-900'}`}>
-                          {isIngreso ? '+' : '-'}${t.monto.toLocaleString('es-CL', { minimumFractionDigits: 0 })}
+                          {isIngreso ? '+' : '-'}{formatCurrency(t.monto)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
                           {canEdit ? (
