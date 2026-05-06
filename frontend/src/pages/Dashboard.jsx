@@ -81,18 +81,18 @@ const Dashboard = () => {
   const gastoCredito = transaccionesFiltradas.filter(t => t.transaccion === 'Credito').reduce((acc, curr) => acc + curr.monto, 0);
   const balance = ingresos - gastos;
 
-  // Pie Chart (Gastos por Categoría) - filtered by month
+  // Pie Chart (Gastos por Categoría) - filtered by month and excludes Credit
   const gastosPorCategoria = categorias.map(cat => {
     const total = transaccionesFiltradas
-      .filter(t => t.tipo !== 'Ingreso' && t.categoria_id === cat.id)
+      .filter(t => t.tipo !== 'Ingreso' && t.categoria_id === cat.id && t.transaccion !== 'Credito')
       .reduce((acc, curr) => acc + curr.monto, 0);
     return { name: cat.nombre, value: total };
   }).filter(c => c.value > 0);
 
-  // Bar Chart (Gastos por Usuario) - filtered by month
+  // Bar Chart (Gastos por Usuario) - filtered by month and excludes Credit
   const gastosPorUsuario = usuarios.map(u => {
     const total = transaccionesFiltradas
-      .filter(t => t.tipo !== 'Ingreso' && t.usuario_id === u.id)
+      .filter(t => t.tipo !== 'Ingreso' && t.usuario_id === u.id && t.transaccion !== 'Credito')
       .reduce((acc, curr) => acc + curr.monto, 0);
     return { name: u.nombre, value: total };
   }).filter(u => u.value > 0);

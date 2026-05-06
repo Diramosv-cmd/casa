@@ -26,8 +26,10 @@ const Login = () => {
       // Handle persistence
       if (rememberMe) {
         localStorage.setItem('token', token);
+        sessionStorage.removeItem('token');
       } else {
         sessionStorage.setItem('token', token);
+        localStorage.removeItem('token');
       }
 
       const userData = await getCurrentUser();
